@@ -5,8 +5,8 @@ from langchain.vectorstores.pgvector import PGVector
 from langchain.document_loaders import DirectoryLoader, TextLoader
 
 load_dotenv(find_dotenv())
-
-embeddings = OpenAIEmbeddings(model="text-embedding-ada-002",openai_api_key="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")
+openai_api_key=os.environ.get("OPENAI_API_KEY")
+embeddings = OpenAIEmbeddings(model="text-embedding-ada-002",openai_api_key=openai_api_key)
 loader = DirectoryLoader(
     "./FAQ", glob="**/*.txt", loader_cls=TextLoader, show_progress=True
 )
