@@ -4,17 +4,19 @@ from app.functions import api_functions, create_pizzas
 from app.handler import OpenAIHandler
 from app.models import Conversation
 from app.db import Base, engine, Session, Review, Order
-from app.prompts import system_message,hiring_prompt_template
+from app.prompts import system_message, hiring_prompt_template
 from app.store import create_store
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import json
+import re
 import logging
 import redis
 from collections.abc import Generator
 from typing import Any, Dict, List
 import openai
 from fastapi.responses import StreamingResponse
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,8 @@ app.add_middleware(
 )
 
 handler = OpenAIHandler(api_functions, functions, system_message)
-R = redis.Redis(host='redis', port=6379, db=0)
+R = redis.Redis(host="redis", port=6379, db=0)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -38,9 +41,11 @@ async def startup_event():
     # if not os.path.exists("vectorstore.pkl"):
     #     create_store()
 
+
 @app.on_event("shutdown")
 async def shutdown_event():
     os.remove("pizzadb.db")
+
 
 @app.post("/restaurant/conversation/{conversation_id}")
 async def query_endpoint(conversation_id: str, conversation: Conversation):
@@ -49,9 +54,15 @@ async def query_endpoint(conversation_id: str, conversation: Conversation):
     if existing_conversation_json:
         existing_conversation = json.loads(existing_conversation_json)
     else:
-        existing_conversation = {"conversation": [{"role": "assistant", "content": "You are a helpful assistant."}]}
+        existing_conversation = {
+            "conversation": [
+                {"role": "assistant", "content": "You are a helpful assistant."}
+            ]
+        }
     if conversation.dict()["lastResponse"]:
-        existing_conversation["conversation"].append({"role": "assistant", "content": conversation.dict()["lastResponse"]})
+        existing_conversation["conversation"].append(
+            {"role": "assistant", "content": conversation.dict()["lastResponse"]}
+        )
     # existing_conversation["conversation"].append({"role": "user", "content": conversation.dict()["conversation"][-1]})
     # If user interrupted then remove the last assistant response
     if conversation.dict()["interruption"]:
@@ -64,13 +75,16 @@ async def query_endpoint(conversation_id: str, conversation: Conversation):
     existing_conversation["conversation"].append(new_message)
     print(existing_conversation["conversation"])
     R.set(conversation_id, json.dumps(existing_conversation))
-    model_id='ft:gpt-3.5-turbo-0125:personal::9Ctr9YCw'
+    model_id = "ft:gpt-3.5-turbo-0125:personal::9Ctr9YCw"
+
     # response = get_response(existing_conversation["conversation"])
     async def generate_response():
-        for content in get_response(existing_conversation["conversation"],system_message,model_id):
-            yield content   # Assuming get_response returns strings
+        for content in get_response(
+            existing_conversation["conversation"], system_message, model_id
+        ):
+            yield content  # Assuming get_response returns strings
 
-    return StreamingResponse(generate_response(),media_type="text/event-stream")
+    return StreamingResponse(generate_response(), media_type="text/event-stream")
 
 
 @app.get("/reviews")
@@ -80,12 +94,14 @@ async def get_all_reviews():
     session.close()
     return reviews
 
+
 @app.get("/orders")
 async def get_all_orders():
     session = Session()
     orders = session.query(Order).all()
     session.close()
     return orders
+
 
 @app.post("/recruitment/conversation/{conversation_id}")
 async def hiring_endpoint(conversation_id: str, conversation: Conversation):
@@ -94,10 +110,18 @@ async def hiring_endpoint(conversation_id: str, conversation: Conversation):
     if existing_conversation_json:
         existing_conversation = json.loads(existing_conversation_json)
     else:
-        
-        existing_conversation = {"conversation": [{"role": "assistant", "content": "Hello, this is Echo from Echo Sense. I hope you're doing well today. I came across your profile and found it quite interesting. Are you currently considering a job change?"}]}
+        existing_conversation = {
+            "conversation": [
+                {
+                    "role": "assistant",
+                    "content": "Hello, this is Echo from Echo Sense. I hope you're doing well today. I came across your profile and found it quite interesting. Are you currently considering a job change?",
+                }
+            ]
+        }
     if conversation.dict()["lastResponse"]:
-        existing_conversation["conversation"].append({"role": "assistant", "content": conversation.dict()["lastResponse"]})
+        existing_conversation["conversation"].append(
+            {"role": "assistant", "content": conversation.dict()["lastResponse"]}
+        )
     # existing_conversation["conversation"].append({"role": "user", "content": conversation.dict()["conversation"][-1]})
     # If user interrupted then remove the last assistant response
     if conversation.dict()["interruption"]:
@@ -110,13 +134,44 @@ async def hiring_endpoint(conversation_id: str, conversation: Conversation):
     existing_conversation["conversation"].append(new_message)
     print(existing_conversation["conversation"])
     R.set(conversation_id, json.dumps(existing_conversation))
-    model_id="ft:gpt-3.5-turbo-0125:personal::9GpWUW63"
+    model_id = "ft:gpt-3.5-turbo-0125:personal::9GpWUW63"
+
     # response = get_response(existing_conversation["conversation"])
     async def generate_response():
-        for content in get_response(existing_conversation["conversation"],hiring_prompt_template,model_id):
-            yield content   # Assuming get_response returns strings
+        inside_json, full_response = False, []
+        try:
+            for content in get_response(
+                existing_conversation["conversation"], hiring_prompt_template, model_id
+            ):
+                full_response.append(content)
+                if "{" in content:
+                    inside_json = True
+                    idx = content.index("{")
+                    yield content[:idx] + content[idx + 1 :]
+                    continue
+                elif "}" in content:
+                    inside_json = False
+                    idx = content.index("}")
+                    yield content[:idx] + content[idx + 1 :]
+                    continue
+                if inside_json:
+                    continue
 
-    return StreamingResponse(generate_response(),media_type="text/event-stream")
+                yield content  # Assuming get_response returns strings
+        finally:
+            full_response = "".join(full_response)
+            json_response = re.findall(r"\{[\s\S]*\}", full_response)
+            if json_response:
+                R.set(f"{conversation_id}_json", json_response[0])
+
+    return StreamingResponse(generate_response(), media_type="text/event-stream")
+
+
+@app.post("/recruitment/conversation_json/{conversation_id}")
+async def get_conversation_result(conversation_id: str):
+    return R.get(f"{conversation_id}_json")
+
+
 def call_function(function_name: str, function_arguments: str) -> str:
     """Calls a function and returns the result."""
 
@@ -140,7 +195,11 @@ def call_function(function_name: str, function_arguments: str) -> str:
 
     # Call the function and return the result
     return func(**function_arguments_dict)
-def get_response(query_messages: List[Dict[str, Any]],prompt_template,model_id:str) -> Generator[str, None, None]:
+
+
+def get_response(
+    query_messages: List[Dict[str, Any]], prompt_template, model_id: str
+) -> Generator[str, None, None]:
     default_messages = [
         {
             "role": "system",
@@ -150,10 +209,10 @@ def get_response(query_messages: List[Dict[str, Any]],prompt_template,model_id:s
     default_messages.extend(query_messages)
     response = openai.ChatCompletion.create(
         # model="gpt-3.5-turbo-0613",
-        model= model_id,
+        model=model_id,
         messages=default_messages,
         functions=functions,
-        stream=True
+        stream=True,
     )
 
     # Define variables to hold the streaming content and function call
@@ -180,10 +239,12 @@ def get_response(query_messages: List[Dict[str, Any]],prompt_template,model_id:s
         if "delta" in msg:
             # If it's a function call, save it for later
             if "function_call" in msg["delta"]:
-                    if "name" in msg["delta"]["function_call"]:
-                        function_call["name"] += msg["delta"]["function_call"]["name"]
-                    if "arguments" in msg["delta"]["function_call"]:
-                        function_call["arguments"] += msg["delta"]["function_call"]["arguments"]
+                if "name" in msg["delta"]["function_call"]:
+                    function_call["name"] += msg["delta"]["function_call"]["name"]
+                if "arguments" in msg["delta"]["function_call"]:
+                    function_call["arguments"] += msg["delta"]["function_call"][
+                        "arguments"
+                    ]
 
             # If it's content, add it to the streaming content and yield it
             elif "content" in msg["delta"]:
