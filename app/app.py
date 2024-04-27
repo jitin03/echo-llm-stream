@@ -4,7 +4,7 @@ from app.functions import api_functions, create_pizzas
 from app.handler import OpenAIHandler
 from app.models import Conversation
 from app.db import Base, engine, Session, Review, Order
-from app.prompts import system_message
+from app.prompts import system_message,hiring_prompt_template
 from app.store import create_store
 from fastapi.middleware.cors import CORSMiddleware
 import os
@@ -42,7 +42,7 @@ async def startup_event():
 async def shutdown_event():
     os.remove("pizzadb.db")
 
-@app.post("/conversation/{conversation_id}")
+@app.post("/restaurant/conversation/{conversation_id}")
 async def query_endpoint(conversation_id: str, conversation: Conversation):
     logger.info(f"Sending Conversation with ID {conversation_id} to OpenAI")
     existing_conversation_json = R.get(conversation_id)
@@ -64,10 +64,10 @@ async def query_endpoint(conversation_id: str, conversation: Conversation):
     existing_conversation["conversation"].append(new_message)
     print(existing_conversation["conversation"])
     R.set(conversation_id, json.dumps(existing_conversation))
-
+    model_id='ft:gpt-3.5-turbo-0125:personal::9Ctr9YCw'
     # response = get_response(existing_conversation["conversation"])
     async def generate_response():
-        for content in get_response(existing_conversation["conversation"]):
+        for content in get_response(existing_conversation["conversation"],system_message,model_id):
             yield content   # Assuming get_response returns strings
 
     return StreamingResponse(generate_response(),media_type="text/event-stream")
@@ -86,6 +86,37 @@ async def get_all_orders():
     orders = session.query(Order).all()
     session.close()
     return orders
+
+@app.post("/recruitment/conversation/{conversation_id}")
+async def hiring_endpoint(conversation_id: str, conversation: Conversation):
+    logger.info(f"Sending Conversation with ID {conversation_id} to OpenAI")
+    existing_conversation_json = R.get(conversation_id)
+    if existing_conversation_json:
+        existing_conversation = json.loads(existing_conversation_json)
+    else:
+        
+        existing_conversation = {"conversation": [{"role": "assistant", "content": "Hello, this is Echo from Echo Sense. I hope you're doing well today. I came across your profile and found it quite interesting. Are you currently considering a job change?"}]}
+    if conversation.dict()["lastResponse"]:
+        existing_conversation["conversation"].append({"role": "assistant", "content": conversation.dict()["lastResponse"]})
+    # existing_conversation["conversation"].append({"role": "user", "content": conversation.dict()["conversation"][-1]})
+    # If user interrupted then remove the last assistant response
+    if conversation.dict()["interruption"]:
+        for i in range(len(existing_conversation["conversation"]) - 1, -1, -1):
+            if existing_conversation["conversation"][i]["role"] == "assistant":
+                del existing_conversation["conversation"][i]
+                break
+    # Append the new message from the conversation
+    new_message = conversation.dict()["conversation"][-1]
+    existing_conversation["conversation"].append(new_message)
+    print(existing_conversation["conversation"])
+    R.set(conversation_id, json.dumps(existing_conversation))
+    model_id="ft:gpt-3.5-turbo-0125:personal::9GpWUW63"
+    # response = get_response(existing_conversation["conversation"])
+    async def generate_response():
+        for content in get_response(existing_conversation["conversation"],hiring_prompt_template,model_id):
+            yield content   # Assuming get_response returns strings
+
+    return StreamingResponse(generate_response(),media_type="text/event-stream")
 def call_function(function_name: str, function_arguments: str) -> str:
     """Calls a function and returns the result."""
 
@@ -109,16 +140,17 @@ def call_function(function_name: str, function_arguments: str) -> str:
 
     # Call the function and return the result
     return func(**function_arguments_dict)
-def get_response(query_messages: List[Dict[str, Any]]) -> Generator[str, None, None]:
+def get_response(query_messages: List[Dict[str, Any]],prompt_template,model_id:str) -> Generator[str, None, None]:
     default_messages = [
         {
             "role": "system",
-            "content": system_message,
+            "content": prompt_template,
         },
     ]
     default_messages.extend(query_messages)
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo-0613",
+        # model="gpt-3.5-turbo-0613",
+        model= model_id,
         messages=default_messages,
         functions=functions,
         stream=True

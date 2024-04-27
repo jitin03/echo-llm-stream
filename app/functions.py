@@ -57,6 +57,10 @@ def create_review(review_text: str):
     return "Review created"
 
 
+def end_call(user_prompt:str):
+    message="Thank you for time, goodbye!"
+    return message
+
 def ask_vector_db(question: str):
     llm = OpenAI(openai_api_key=os.environ.get("OPENAI_API_KEY"))
 
@@ -77,6 +81,7 @@ api_functions = {
     "create_order": create_order,
     "get_pizza_info": get_pizza_info,
     "ask_vector_db": ask_vector_db,
+    "end_call":end_call
 }
 
 

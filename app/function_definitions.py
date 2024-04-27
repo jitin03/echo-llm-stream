@@ -1,4 +1,19 @@
 functions = [
+            {
+        "name": "end_call",
+        "title": "Goodbye Information Extractor",
+        "description": "Extractor for detecting when a user wants to hang up the call or says goodbye explicitly.",
+        "parameters":{
+            "type": "object",
+            "properties":{
+                "user_prompt": {
+                    "type": "string",
+                    "description": "Indicates if the user wants to hang up the call or user explicitly says goodbye"
+                }
+            }
+        }
+       
+        },
     {
         "name": "get_pizza_info",
         "description": "Get name and price of a pizza of the restaurant",
