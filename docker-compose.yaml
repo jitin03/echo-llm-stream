@@ -20,6 +20,8 @@ services:
 
   service3:
     build: .
+    expose:
+      - "80"
     ports:
       - "5566:5566"
     env_file:
@@ -27,7 +29,8 @@ services:
     depends_on:
       - postgres
 
-
+ 
 volumes:
   redis_data:
   redis2_data:
+ 

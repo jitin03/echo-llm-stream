@@ -2,20 +2,23 @@ from fastapi import FastAPI
 from app.function_definitions import functions
 from app.functions import api_functions, create_pizzas
 from app.handler import OpenAIHandler
-from app.models import Conversation
+from app.models import Conversation,candidate_info_data,unique_id
 from app.db import Base, engine, Session, Review, Order
 from app.prompts import system_message, hiring_prompt_template
 from app.store import create_store
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import json
+import requests
 import re
+from starlette import status
 import logging
 import redis
 from collections.abc import Generator
 from typing import Any, Dict, List
 import openai
 from fastapi.responses import StreamingResponse
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -269,3 +272,24 @@ def get_response(
                 }
             )
             yield from get_response(default_messages)
+
+
+@app.get("/hiring/get_info/{conversation_id}",status_code=status.HTTP_200_OK)
+async def get_info(conversation_id: str):
+    existing_conversation_json = R.get(conversation_id)
+    existing_conversation = json.loads(existing_conversation_json)
+    user_responses = " ".join([entry['content'] for entry in existing_conversation["conversation"] if entry['role'] == 'user'])
+    url = "https://afe8-2402-3a80-4019-6d09-c884-6497-248e-476e.ngrok-free.app"
+    headers = {"x-key": unique_id}
+    print(user_responses)
+    print(candidate_info_data)
+    response = requests.post(f"{url}/extractors", json=candidate_info_data, headers=headers)
+    extractor = response.json()
+    
+    result = requests.post(
+    f"{url}/extract",
+    data={"extractor_id": extractor["uuid"],"text":user_responses},
+    
+    headers=headers,)
+    
+    return {"data":result.json()}
