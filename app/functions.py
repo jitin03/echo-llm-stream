@@ -14,14 +14,14 @@ load_dotenv(find_dotenv())
 
 api_key = os.getenv("OPENAI_API_KEY")
 CONNECTION_STRING = "postgresql+psycopg2://admin:admin@postgres:5432/vectordb"
-COLLECTION_NAME="vectordb"
+COLLECTION_NAME = "vectordb"
 embeddings = OpenAIEmbeddings()
 store = PGVector(
     collection_name=COLLECTION_NAME,
     connection_string=CONNECTION_STRING,
     embedding_function=embeddings,
 )
-retriever = store.as_retriever(search_kwargs={"k":1})
+retriever = store.as_retriever(search_kwargs={"k": 1})
 
 
 def get_pizza_info(pizza_name: str):
@@ -57,15 +57,14 @@ def create_review(review_text: str):
     return "Review created"
 
 
-def end_call(user_prompt:str):
-    message="Thank you for time, goodbye!"
+def end_call():
+    message = "Thank you for time, goodbye!"
     return message
+
 
 def ask_vector_db(question: str):
     llm = OpenAI(openai_api_key=os.environ.get("OPENAI_API_KEY"))
 
-
-    
     qa = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
@@ -81,7 +80,7 @@ api_functions = {
     "create_order": create_order,
     "get_pizza_info": get_pizza_info,
     "ask_vector_db": ask_vector_db,
-    "end_call":end_call
+    "end_call": end_call,
 }
 
 
